@@ -1,11 +1,17 @@
 import "reflect-metadata";
 import { Test, TestingModule } from "@nestjs/testing";
-import { INestApplication } from "@nestjs/common";
+import { INestApplication, ValidationPipe } from "@nestjs/common";
 import request from "supertest";
 import { AppModule } from "../src/app.module";
 import { TwitterClientPoolService } from "../src/twitter/twitter-client-pool.service";
 import { AccountsStore } from "../src/storage/accounts.store";
 import { ProxyStore } from "../src/storage/proxy.store";
+import {
+  ApiResponseInterceptor,
+  ApiExceptionFilter,
+} from "../src/common/api-response";
+
+const PREFIX = "/api/v3";
 
 describe("Twitter API (e2e)", () => {
   let app: INestApplication;
@@ -62,6 +68,12 @@ describe("Twitter API (e2e)", () => {
       .compile();
 
     app = moduleFixture.createNestApplication();
+    app.setGlobalPrefix("api/v3");
+    app.useGlobalPipes(
+      new ValidationPipe({ transform: true, whitelist: true }),
+    );
+    app.useGlobalInterceptors(new ApiResponseInterceptor());
+    app.useGlobalFilters(new ApiExceptionFilter());
     await app.init();
   });
 
@@ -69,34 +81,44 @@ describe("Twitter API (e2e)", () => {
     await app.close();
   });
 
-  describe("GET /health", () => {
-    it("returns status ok", () => {
+  // -----------------------------------------------------------------------
+  // Health / stats
+  // -----------------------------------------------------------------------
+
+  describe(`GET ${PREFIX}/health`, () => {
+    it("returns wrapped success response with status ok", () => {
       return request(app.getHttpServer())
-        .get("/health")
+        .get(`${PREFIX}/health`)
         .expect(200)
         .expect((res) => {
-          expect(res.body.status).toBe("ok");
-          expect(res.body.timestamp).toBeDefined();
+          expect(res.body.success).toBe(true);
+          expect(res.body.data.status).toBe("ok");
+          expect(res.body.data.timestamp).toBeDefined();
         });
     });
   });
 
-  describe("GET /stats", () => {
-    it("returns pool statistics", () => {
+  describe(`GET ${PREFIX}/stats`, () => {
+    it("returns wrapped pool statistics", () => {
       return request(app.getHttpServer())
-        .get("/stats")
+        .get(`${PREFIX}/stats`)
         .expect(200)
         .expect((res) => {
-          expect(res.body.accounts.total).toBe(2);
-          expect(res.body.proxies.total).toBe(5);
-          expect(res.body.queue).toBeDefined();
-          expect(res.body.concurrency).toBeDefined();
+          expect(res.body.success).toBe(true);
+          expect(res.body.data.accounts.total).toBe(2);
+          expect(res.body.data.proxies.total).toBe(5);
+          expect(res.body.data.queue).toBeDefined();
+          expect(res.body.data.concurrency).toBeDefined();
         });
     });
   });
 
-  describe("GET /tweets/:username", () => {
-    it("returns tweets from pool.execute", async () => {
+  // -----------------------------------------------------------------------
+  // Tweets
+  // -----------------------------------------------------------------------
+
+  describe(`GET ${PREFIX}/tweets/:username`, () => {
+    it("returns wrapped tweets from pool.execute", async () => {
       const fakeTweets = [
         { id: "1", text: "hello" },
         { id: "2", text: "world" },
@@ -104,63 +126,86 @@ describe("Twitter API (e2e)", () => {
       mockPool.execute.mockResolvedValueOnce(fakeTweets);
 
       const res = await request(app.getHttpServer())
-        .get("/tweets/testuser?count=2")
+        .get(`${PREFIX}/tweets/testuser?count=2`)
         .expect(200);
 
-      expect(res.body).toEqual(fakeTweets);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data).toEqual(fakeTweets);
     });
 
-    it("returns 502 on timeout errors", async () => {
+    it("returns error envelope on timeout errors", async () => {
       mockPool.execute.mockRejectedValueOnce(
         new Error("request timed out"),
       );
 
-      await request(app.getHttpServer())
-        .get("/tweets/testuser")
+      const res = await request(app.getHttpServer())
+        .get(`${PREFIX}/tweets/testuser`)
         .expect(502);
+
+      expect(res.body.success).toBe(false);
+      expect(res.body.message).toBeDefined();
     });
   });
 
-  describe("GET /search", () => {
-    it("requires q parameter", async () => {
-      await request(app.getHttpServer()).get("/search").expect(400);
+  // -----------------------------------------------------------------------
+  // Search
+  // -----------------------------------------------------------------------
+
+  describe(`GET ${PREFIX}/search`, () => {
+    it("returns error envelope when q parameter is missing", async () => {
+      const res = await request(app.getHttpServer())
+        .get(`${PREFIX}/search`)
+        .expect(400);
+
+      expect(res.body.success).toBe(false);
     });
 
-    it("returns search results", async () => {
+    it("returns wrapped search results", async () => {
       const fakeResult = { tweets: [{ id: "1" }], next: null };
       mockPool.execute.mockResolvedValueOnce(fakeResult);
 
       const res = await request(app.getHttpServer())
-        .get("/search?q=bitcoin&count=5")
+        .get(`${PREFIX}/search?q=bitcoin&count=5`)
         .expect(200);
 
-      expect(res.body).toEqual(fakeResult);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data).toEqual(fakeResult);
     });
   });
 
-  describe("GET /profile/:username", () => {
-    it("returns profile data", async () => {
+  // -----------------------------------------------------------------------
+  // Profile
+  // -----------------------------------------------------------------------
+
+  describe(`GET ${PREFIX}/profile/:username`, () => {
+    it("returns wrapped profile data", async () => {
       const fakeProfile = { username: "test", followersCount: 100 };
       mockPool.execute.mockResolvedValueOnce(fakeProfile);
 
       const res = await request(app.getHttpServer())
-        .get("/profile/test")
+        .get(`${PREFIX}/profile/test`)
         .expect(200);
 
-      expect(res.body.username).toBe("test");
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.username).toBe("test");
     });
   });
 
-  describe("GET /tweet/:id", () => {
-    it("returns a single tweet", async () => {
+  // -----------------------------------------------------------------------
+  // Single tweet
+  // -----------------------------------------------------------------------
+
+  describe(`GET ${PREFIX}/tweet/:id`, () => {
+    it("returns wrapped single tweet", async () => {
       const fakeTweet = { id: "123", text: "hi" };
       mockPool.execute.mockResolvedValueOnce(fakeTweet);
 
       const res = await request(app.getHttpServer())
-        .get("/tweet/123")
+        .get(`${PREFIX}/tweet/123`)
         .expect(200);
 
-      expect(res.body.id).toBe("123");
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.id).toBe("123");
     });
   });
 });
