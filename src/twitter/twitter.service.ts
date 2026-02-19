@@ -59,27 +59,40 @@ export class TwitterService {
   async searchTweets(
     query: string,
     count: number,
-    mode: "latest" | "top" = "latest",
+    mode: "latest" | "top" | "photos" | "videos" | "users" = "latest",
   ) {
-    const searchMode =
-      mode === "top" ? SearchMode.Top : SearchMode.Latest;
+    const searchMode = this.resolveSearchMode(mode);
 
     return this.pool.execute(
-      `searchTweets("${query}")`,
+      `searchTweets("${query}", ${mode})`,
       async (scraper) => {
-        const response = await withTimeout(
-          scraper.fetchSearchTweets(query, count, searchMode),
-          this.pool.timeouts.search,
-          "searchTweets",
-        );
-        return {
-          tweets: (response?.tweets ?? []).map((t) =>
-            this.sanitizeTweet(t),
-          ),
-          next: response?.next ?? null,
-        };
+        const tweets: unknown[] = [];
+        const generator = scraper.searchTweets(query, count, searchMode);
+        for await (const tweet of generator) {
+          tweets.push(this.sanitizeTweet(tweet));
+          if (tweets.length >= count) break;
+        }
+        return { tweets, next: null };
       },
     );
+  }
+
+  private resolveSearchMode(
+    mode: "latest" | "top" | "photos" | "videos" | "users",
+  ): SearchMode {
+    switch (mode) {
+      case "top":
+        return SearchMode.Top;
+      case "photos":
+        return SearchMode.Photos;
+      case "videos":
+        return SearchMode.Videos;
+      case "users":
+        return SearchMode.Users;
+      case "latest":
+      default:
+        return SearchMode.Latest;
+    }
   }
 
   async getProfile(username: string) {

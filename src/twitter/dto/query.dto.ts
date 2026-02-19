@@ -28,12 +28,12 @@ export class SearchQueryDto {
 
   @ApiPropertyOptional({
     description: "Search mode",
-    enum: ["latest", "top"],
+    enum: ["latest", "top", "photos", "videos", "users"],
     default: "latest",
   })
   @IsOptional()
-  @IsIn(["latest", "top"])
-  mode?: "latest" | "top";
+  @IsIn(["latest", "top", "photos", "videos", "users"])
+  mode?: "latest" | "top" | "photos" | "videos" | "users";
 }
 
 export class FollowQueryDto {

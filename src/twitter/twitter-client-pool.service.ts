@@ -244,7 +244,11 @@ export class TwitterClientPoolService
   // -----------------------------------------------------------------------
 
   private createScraper(proxy?: ProxyEntry): Scraper {
-    if (!proxy) return new Scraper();
+    const experimentalOpts = { xClientTransactionId: true };
+
+    if (!proxy) {
+      return new Scraper({ experimental: experimentalOpts } as Record<string, unknown>);
+    }
 
     const agent = new ProxyAgent(proxy.url);
     const proxyFetch = async (
@@ -275,7 +279,8 @@ export class TwitterClientPoolService
 
     return new Scraper({
       fetch: proxyFetch as unknown as typeof globalThis.fetch,
-    });
+      experimental: experimentalOpts,
+    } as Record<string, unknown>);
   }
 
   private async authenticate(

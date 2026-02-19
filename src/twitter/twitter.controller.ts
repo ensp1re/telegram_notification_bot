@@ -121,7 +121,7 @@ export class TwitterController {
   @ApiOperation({ summary: "Search tweets" })
   @ApiQuery({ name: "q", required: true, example: "bitcoin", description: "Search query" })
   @ApiQuery({ name: "count", required: false, example: "20", description: "1-100" })
-  @ApiQuery({ name: "mode", required: false, enum: ["latest", "top"], description: "Search mode" })
+  @ApiQuery({ name: "mode", required: false, enum: ["latest", "top", "photos", "videos", "users"], description: "Search mode" })
   @ApiResponse({ status: 200, description: "Search results" })
   @ApiResponse({ status: 400, description: "Missing q parameter" })
   async search(
@@ -134,8 +134,8 @@ export class TwitterController {
       );
     }
     const count = clampCount(query.count, 20, 100);
-    const mode = query.mode === "top" ? "top" : "latest";
-    const data = await this.wrap(() => this.twitter.searchTweets(query.q, count, mode as "latest" | "top"));
+    const mode = query.mode ?? "latest";
+    const data = await this.wrap(() => this.twitter.searchTweets(query.q, count, mode));
     return ok(data as SearchResultDto, `Search results for "${query.q}"`);
   }
 
